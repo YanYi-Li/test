@@ -1,0 +1,95 @@
+import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.assertj.core.api.Assertions.*;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.InetAddress;
+import java.net.URL;
+
+import javax.xml.bind.JAXBContext;
+import javax.xml.bind.JAXBException;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
+
+import cub.aco.svc.dashboard.core.security.dto.CheckTokenRequest;
+import cub.aco.svc.dashboard.core.security.dto.CheckTokenResponse;
+
+@ExtendWith(MockitoExtension.class)
+public class AuthServiceTest {
+
+    @InjectMocks
+    private AuthService authService;
+
+    @Mock
+    private URL mockUrl;
+
+    @Mock
+    private HttpURLConnection mockConnection;
+
+    @BeforeEach
+    void setup() throws Exception {
+        ReflectionTestUtils.setField(authService, "secAuthApId", "testAppId");
+        ReflectionTestUtils.setField(authService, "authServerUrl", "http://mock-auth-url");
+        ReflectionTestUtils.setField(authService, "localIp", InetAddress.getLocalHost().getHostAddress());
+    }
+
+    @Test
+    void testCheckToken_Success() throws Exception {
+        // Mock CheckTokenRequest
+        CheckTokenRequest request = new CheckTokenRequest();
+        request.setToken("testToken");
+
+        // Mock HttpURLConnection behavior
+        when(mockUrl.openConnection()).thenReturn(mockConnection);
+        when(mockConnection.getInputStream()).thenReturn(new ByteArrayInputStream(generateMockResponseXml().getBytes()));
+
+        // Execute the method
+        CheckTokenResponse response = authService.checkToken(request);
+
+        // Assertions
+        assertNotNull(response);
+        assertThat(response.getReturnCode()).isEqualTo("SUCCESS");
+        assertThat(response.getEmpId()).isEqualTo("12345");
+    }
+
+    @Test
+    void testCheckToken_Failure_InvalidResponse() throws Exception {
+        // Mock CheckTokenRequest
+        CheckTokenRequest request = new CheckTokenRequest();
+        request.setToken("testToken");
+
+        // Mock invalid XML response
+        when(mockUrl.openConnection()).thenReturn(mockConnection);
+        when(mockConnection.getInputStream()).thenReturn(new ByteArrayInputStream("INVALID_RESPONSE".getBytes()));
+
+        // Execute the method and expect an exception
+        assertThrows(SecurityException.class, () -> authService.checkToken(request));
+    }
+
+    @Test
+    void testSanitizeString() {
+        String input = "hello\x00world\x1F";
+        String sanitized = ReflectionTestUtils.invokeMethod(authService, "sanitizeString", input);
+        assertEquals("helloworld", sanitized);
+    }
+
+    private String generateMockResponseXml() throws JAXBException {
+        CheckTokenResponse response = new CheckTokenResponse();
+        response.setReturnCode("SUCCESS");
+        response.setEmpId("12345");
+
+        JAXBContext jaxbContext = JAXBContext.newInstance(CheckTokenResponse.class);
+        java.io.StringWriter sw = new java.io.StringWriter();
+        jaxbContext.createMarshaller().marshal(response, sw);
+        return sw.toString();
+    }
+}
